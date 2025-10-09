@@ -1,0 +1,25 @@
+[
+  {
+    "ownerId": "current-user",
+    "subject": "א",
+    "score": 0,
+    "takenAt": "2025-10-08T19:51:02.743Z",
+    "questionsCount": 1,
+    "respondentsCount": 0,
+    "averageScore": 0,
+    "averageCorrect": 0,
+    "questions": [
+      {
+        "question": "א",
+        "options": [
+          "א",
+          "א",
+          "א",
+          "א"
+        ],
+        "correctIndex": 0
+      }
+    ],
+    "id": "test_1759953062763_nz6x290"
+  }
+]
