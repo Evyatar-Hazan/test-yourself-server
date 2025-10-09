@@ -35,24 +35,13 @@ const readJsonFile = (filePath, defaultData = []) => {
   }
 };
 
-// פונקציה עוזרת לשמירת קובץ JSON
-const writeJsonFile = (filePath, data) => {
-  try {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-    return true;
-  } catch (error) {
-    console.error(`Error writing file ${filePath}:`, error);
-    return false;
-  }
-};
-
 // קריאת מבחני משתמש
 app.get('/api/user-tests', (req, res) => {
   try {
     if (!fs.existsSync(USER_TESTS_FILE)) {
       fs.writeFileSync(USER_TESTS_FILE, '[]');
     }
-    
+
     const data = fs.readFileSync(USER_TESTS_FILE, 'utf8');
     const tests = JSON.parse(data);
     res.json(tests);
@@ -66,26 +55,26 @@ app.get('/api/user-tests', (req, res) => {
 app.post('/api/user-tests', (req, res) => {
   try {
     const newTest = req.body;
-    
+
     // קריאת המבחנים הקיימים
     let tests = [];
     if (fs.existsSync(USER_TESTS_FILE)) {
       const data = fs.readFileSync(USER_TESTS_FILE, 'utf8');
       tests = JSON.parse(data);
     }
-    
+
     // הוספת id ייחודי למבחן החדש
     const testWithId = {
       ...newTest,
-      id: `test_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+      id: `test_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
     };
-    
+
     // הוספת המבחן לתחילת הרשימה
     tests.unshift(testWithId);
-    
+
     // שמירה לקובץ
     fs.writeFileSync(USER_TESTS_FILE, JSON.stringify(tests, null, 2));
-    
+
     console.log('Test saved successfully:', testWithId.id);
     res.json(testWithId);
   } catch (error) {
@@ -98,24 +87,24 @@ app.post('/api/user-tests', (req, res) => {
 app.delete('/api/user-tests/:id', (req, res) => {
   try {
     const testId = req.params.id;
-    
+
     if (!fs.existsSync(USER_TESTS_FILE)) {
       return res.status(404).json({ error: 'No tests found' });
     }
-    
+
     const data = fs.readFileSync(USER_TESTS_FILE, 'utf8');
-    let tests = JSON.parse(data);
-    
+    const tests = JSON.parse(data);
+
     // מחיקת המבחן לפי ID
     const filteredTests = tests.filter(test => test.id !== testId);
-    
+
     if (filteredTests.length === tests.length) {
       return res.status(404).json({ error: 'Test not found' });
     }
-    
+
     // שמירה לקובץ
     fs.writeFileSync(USER_TESTS_FILE, JSON.stringify(filteredTests, null, 2));
-    
+
     console.log('Test deleted successfully:', testId);
     res.json({ message: 'Test deleted successfully' });
   } catch (error) {

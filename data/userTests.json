@@ -11,12 +11,7 @@
     "questions": [
       {
         "question": "א",
-        "options": [
-          "א",
-          "א",
-          "א",
-          "א"
-        ],
+        "options": ["א", "א", "א", "א"],
         "correctIndex": 0
       }
     ],
