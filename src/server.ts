@@ -2,6 +2,10 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
+import { AuthService } from './services/authService';
+import { EmailService } from './services/emailService';
+import { authenticateToken, requireEmailVerification, AuthenticatedRequest } from './middleware/authMiddleware';
+import { User as AuthUser, UserResponse, LoginRequest, RegisterRequest, AuthResponse, VerifyEmailRequest, ResetPasswordRequest, ResetPasswordConfirmRequest } from './models/User';
 
 // Types
 interface TestComment {
@@ -91,6 +95,407 @@ const readJsonFile = <T>(filePath: string, defaultData: T = [] as unknown as T):
     return defaultData;
   }
 };
+
+// פונקציה עוזרת לכתיבת קובץ JSON
+const writeJsonFile = <T>(filePath: string, data: T): void => {
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+  } catch (error) {
+    console.error(`Error writing file ${filePath}:`, error);
+    throw error;
+  }
+};
+
+// Auth Endpoints
+
+// הרשמה
+app.post('/api/auth/register', async (req: Request, res: Response) => {
+  try {
+    const { name, email, password }: RegisterRequest = req.body;
+
+    // ולידציה
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        message: 'נדרשים שם, מייל וסיסמה'
+      });
+    }
+
+    if (!AuthService.isValidEmail(email)) {
+      return res.status(400).json({
+        error: 'Invalid email',
+        message: 'כתובת מייל לא תקינה'
+      });
+    }
+
+    if (!AuthService.isValidName(name)) {
+      return res.status(400).json({
+        error: 'Invalid name',
+        message: 'שם חייב להכיל לפחות 2 תווים ורק אותיות ורווחים'
+      });
+    }
+
+    if (!AuthService.isValidPassword(password)) {
+      return res.status(400).json({
+        error: 'Invalid password',
+        message: 'סיסמה חייבת להכיל לפחות 8 תווים, אות גדולה, אות קטנה ומספר'
+      });
+    }
+
+    // בדיקה אם המייל כבר קיים
+    const users: AuthUser[] = readJsonFile(USERS_FILE, []);
+    const existingUser = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+    
+    if (existingUser) {
+      return res.status(400).json({
+        error: 'Email already exists',
+        message: 'כתובת מייל זו כבר קיימת במערכת'
+      });
+    }
+
+    // יצירת משתמש חדש
+    const hashedPassword = await AuthService.hashPassword(password);
+    const emailVerificationToken = AuthService.generateEmailVerificationToken();
+    
+    const newUser: AuthUser = {
+      id: Date.now().toString(),
+      name: name.trim(),
+      email: email.toLowerCase(),
+      password: hashedPassword,
+      isEmailVerified: false,
+      emailVerificationToken,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    users.push(newUser);
+    writeJsonFile(USERS_FILE, users);
+
+    // שליחת מייל אימות
+    const emailSent = await EmailService.sendVerificationEmail(
+      newUser.email, 
+      newUser.name, 
+      emailVerificationToken
+    );
+
+    if (!emailSent) {
+      console.warn('Failed to send verification email');
+    }
+
+    // יצירת tokens
+    const accessToken = AuthService.generateAccessToken(newUser.id);
+    const refreshToken = AuthService.generateRefreshToken(newUser.id);
+
+    const response: AuthResponse = {
+      user: AuthService.toUserResponse(newUser),
+      token: accessToken,
+      refreshToken
+    };
+
+    res.status(201).json({
+      ...response,
+      message: 'ההרשמה הושלמה בהצלחה. נשלח אליך מייל לאימות הכתובת'
+    });
+
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({
+      error: 'Registration failed',
+      message: 'שגיאה בהרשמה. נסה שוב'
+    });
+  }
+});
+
+// התחברות
+app.post('/api/auth/login', async (req: Request, res: Response) => {
+  try {
+    const { email, password }: LoginRequest = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        error: 'Missing credentials',
+        message: 'נדרש מייל וסיסמה'
+      });
+    }
+
+    // חיפוש משתמש
+    const users: AuthUser[] = readJsonFile(USERS_FILE, []);
+    const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+
+    if (!user) {
+      return res.status(401).json({
+        error: 'Invalid credentials',
+        message: 'מייל או סיסמה שגויים'
+      });
+    }
+
+    // בדיקת סיסמה
+    const isPasswordValid = await AuthService.comparePassword(password, user.password);
+    
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        error: 'Invalid credentials',
+        message: 'מייל או סיסמה שגויים'
+      });
+    }
+
+    // עדכון זמן התחברות אחרון
+    const userIndex = users.findIndex(u => u.id === user.id);
+    users[userIndex].lastLoginAt = new Date().toISOString();
+    users[userIndex].updatedAt = new Date().toISOString();
+    writeJsonFile(USERS_FILE, users);
+
+    // יצירת tokens
+    const accessToken = AuthService.generateAccessToken(user.id);
+    const refreshToken = AuthService.generateRefreshToken(user.id);
+
+    const response: AuthResponse = {
+      user: AuthService.toUserResponse(users[userIndex]),
+      token: accessToken,
+      refreshToken
+    };
+
+    res.json({
+      ...response,
+      message: 'התחברות מוצלחת'
+    });
+
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({
+      error: 'Login failed',
+      message: 'שגיאה בהתחברות. נסה שוב'
+    });
+  }
+});
+
+// אימות מייל
+app.post('/api/auth/verify-email', async (req: Request, res: Response) => {
+  try {
+    const { token }: VerifyEmailRequest = req.body;
+
+    if (!token) {
+      return res.status(400).json({
+        error: 'Missing token',
+        message: 'נדרש token לאימות'
+      });
+    }
+
+    const users: AuthUser[] = readJsonFile(USERS_FILE, []);
+    const userIndex = users.findIndex(u => u.emailVerificationToken === token);
+
+    if (userIndex === -1) {
+      return res.status(400).json({
+        error: 'Invalid token',
+        message: 'Token לא תקין או פג תוקף'
+      });
+    }
+
+    // עדכון המשתמש
+    users[userIndex].isEmailVerified = true;
+    users[userIndex].emailVerificationToken = undefined;
+    users[userIndex].updatedAt = new Date().toISOString();
+    writeJsonFile(USERS_FILE, users);
+
+    // שליחת מייל ברכה
+    await EmailService.sendWelcomeEmail(
+      users[userIndex].email,
+      users[userIndex].name
+    );
+
+    res.json({
+      message: 'המייל אומת בהצלחה!',
+      user: AuthService.toUserResponse(users[userIndex])
+    });
+
+  } catch (error) {
+    console.error('Email verification error:', error);
+    res.status(500).json({
+      error: 'Verification failed',
+      message: 'שגיאה באימות המייל. נסה שוב'
+    });
+  }
+});
+
+// בקשת איפוס סיסמה
+app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
+  try {
+    const { email }: ResetPasswordRequest = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        error: 'Missing email',
+        message: 'נדרש מייל'
+      });
+    }
+
+    const users: AuthUser[] = readJsonFile(USERS_FILE, []);
+    const userIndex = users.findIndex(u => u.email.toLowerCase() === email.toLowerCase());
+
+    if (userIndex === -1) {
+      // לא מגלים שהמייל לא קיים מסיבות אבטחה
+      return res.json({
+        message: 'אם המייל קיים במערכת, נשלח אליך קישור לאיפוס סיסמה'
+      });
+    }
+
+    // יצירת token לאיפוס
+    const resetToken = AuthService.generateResetPasswordToken();
+    const resetExpires = new Date();
+    resetExpires.setHours(resetExpires.getHours() + 1); // תוקף של שעה
+
+    users[userIndex].resetPasswordToken = resetToken;
+    users[userIndex].resetPasswordExpires = resetExpires;
+    users[userIndex].updatedAt = new Date().toISOString();
+    writeJsonFile(USERS_FILE, users);
+
+    // שליחת מייל
+    await EmailService.sendPasswordResetEmail(
+      users[userIndex].email,
+      users[userIndex].name,
+      resetToken
+    );
+
+    res.json({
+      message: 'אם המייל קיים במערכת, נשלח אליך קישור לאיפוס סיסמה'
+    });
+
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({
+      error: 'Reset failed',
+      message: 'שגיאה בבקשת איפוס הסיסמה. נסה שוב'
+    });
+  }
+});
+
+// אישור איפוס סיסמה
+app.post('/api/auth/reset-password-confirm', async (req: Request, res: Response) => {
+  try {
+    const { token, newPassword }: ResetPasswordConfirmRequest = req.body;
+
+    if (!token || !newPassword) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        message: 'נדרש token וסיסמה חדשה'
+      });
+    }
+
+    if (!AuthService.isValidPassword(newPassword)) {
+      return res.status(400).json({
+        error: 'Invalid password',
+        message: 'סיסמה חייבת להכיל לפחות 8 תווים, אות גדולה, אות קטנה ומספר'
+      });
+    }
+
+    const users: AuthUser[] = readJsonFile(USERS_FILE, []);
+    const userIndex = users.findIndex(u => 
+      u.resetPasswordToken === token && 
+      u.resetPasswordExpires && 
+      new Date(u.resetPasswordExpires) > new Date()
+    );
+
+    if (userIndex === -1) {
+      return res.status(400).json({
+        error: 'Invalid or expired token',
+        message: 'Token לא תקין או פג תוקף'
+      });
+    }
+
+    // עדכון הסיסמה
+    const hashedPassword = await AuthService.hashPassword(newPassword);
+    users[userIndex].password = hashedPassword;
+    users[userIndex].resetPasswordToken = undefined;
+    users[userIndex].resetPasswordExpires = undefined;
+    users[userIndex].updatedAt = new Date().toISOString();
+    writeJsonFile(USERS_FILE, users);
+
+    res.json({
+      message: 'הסיסמה עודכנה בהצלחה'
+    });
+
+  } catch (error) {
+    console.error('Reset password confirm error:', error);
+    res.status(500).json({
+      error: 'Reset failed',
+      message: 'שגיאה באיפוס הסיסמה. נסה שוב'
+    });
+  }
+});
+
+// בדיקת סטטוס המשתמש הנוכחי
+app.get('/api/auth/me', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({
+      error: 'User not found',
+      message: 'משתמש לא נמצא'
+    });
+  }
+
+  res.json({
+    user: AuthService.toUserResponse(req.user),
+    message: 'מידע המשתמש נטען בהצלחה'
+  });
+});
+
+// התנתקות (אופציונלי - בצד הלקוח פשוט מוחקים את ה-token)
+app.post('/api/auth/logout', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  // במערכת פשוטה כמו זו, ההתנתקות מתבצעת בצד הלקוח
+  // ניתן להוסיף blacklist של tokens אם נדרש
+  res.json({
+    message: 'התנתקות מוצלחת'
+  });
+});
+
+// רענון token
+app.post('/api/auth/refresh', (req: Request, res: Response) => {
+  try {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) {
+      return res.status(401).json({
+        error: 'Refresh token required',
+        message: 'נדרש refresh token'
+      });
+    }
+
+    const decoded = AuthService.verifyRefreshToken(refreshToken);
+    if (!decoded) {
+      return res.status(403).json({
+        error: 'Invalid refresh token',
+        message: 'Refresh token לא תקין'
+      });
+    }
+
+    // בדיקה שהמשתמש עדיין קיים
+    const users: AuthUser[] = readJsonFile(USERS_FILE, []);
+    const user = users.find(u => u.id === decoded.userId);
+
+    if (!user) {
+      return res.status(403).json({
+        error: 'User not found',
+        message: 'משתמש לא נמצא'
+      });
+    }
+
+    // יצירת token חדש
+    const newAccessToken = AuthService.generateAccessToken(user.id);
+    const newRefreshToken = AuthService.generateRefreshToken(user.id);
+
+    res.json({
+      token: newAccessToken,
+      refreshToken: newRefreshToken,
+      user: AuthService.toUserResponse(user)
+    });
+
+  } catch (error) {
+    console.error('Token refresh error:', error);
+    res.status(500).json({
+      error: 'Refresh failed',
+      message: 'שגיאה ברענון ה-token'
+    });
+  }
+});
 
 // קריאת מבחני משתמש
 app.get('/api/user-tests', (req: Request, res: Response) => {
@@ -446,6 +851,130 @@ app.post('/api/tests/:testId/like', (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error toggling test like:', error);
     res.status(500).json({ error: 'Failed to toggle test like' });
+  }
+});
+
+// בקשת איפוס סיסמה
+app.post('/api/auth/forgot-password', async (req: Request, res: Response) => {
+  try {
+    const { email }: ResetPasswordRequest = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        error: 'Missing email',
+        message: 'נדרש מייל'
+      });
+    }
+
+    if (!AuthService.isValidEmail(email)) {
+      return res.status(400).json({
+        error: 'Invalid email',
+        message: 'כתובת מייל לא תקינה'
+      });
+    }
+
+    // בדיקה אם המשתמש קיים
+    const users: AuthUser[] = readJsonFile(USERS_FILE, []);
+    const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+
+    if (!user) {
+      // מסיבות אבטחה, נחזיר הודעת הצלחה גם אם המשתמש לא קיים
+      return res.json({
+        message: 'אם המייל קיים במערכת, נשלח קישור לאיפוס סיסמה'
+      });
+    }
+
+    // יצירת token לאיפוס סיסמה
+    const resetToken = AuthService.generateResetPasswordToken();
+    const resetExpires = new Date();
+    resetExpires.setHours(resetExpires.getHours() + 1); // תקף לשעה
+
+    // עדכון המשתמש עם ה-token
+    user.resetPasswordToken = resetToken;
+    user.resetPasswordExpires = resetExpires;
+    user.updatedAt = new Date().toISOString();
+
+    writeJsonFile(USERS_FILE, users);
+
+    // שליחת מייל (בפיתוח נדלג)
+    if (process.env.NODE_ENV !== 'development') {
+      try {
+        await EmailService.sendPasswordResetEmail(user.email, user.name, resetToken);
+      } catch (emailError) {
+        console.error('Failed to send reset email:', emailError);
+      }
+    } else {
+      console.log(`🔑 Password reset token for ${email}: ${resetToken}`);
+    }
+
+    res.json({
+      message: 'אם המייל קיים במערכת, נשלח קישור לאיפוס סיסמה'
+    });
+  } catch (error) {
+    console.error('Error in forgot password:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'שגיאה פנימית בשרת'
+    });
+  }
+});
+
+// אימות איפוס סיסמה
+app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
+  try {
+    const { token, newPassword }: ResetPasswordConfirmRequest = req.body;
+
+    if (!token || !newPassword) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        message: 'נדרשים token וסיסמה חדשה'
+      });
+    }
+
+    if (!AuthService.isValidPassword(newPassword)) {
+      return res.status(400).json({
+        error: 'Invalid password',
+        message: 'סיסמה חייבת להכיל לפחות 8 תווים, אות גדולה, אות קטנה ומספר'
+      });
+    }
+
+    // חיפוש המשתמש עם ה-token
+    const users: AuthUser[] = readJsonFile(USERS_FILE, []);
+    const userIndex = users.findIndex(u => 
+      u.resetPasswordToken === token && 
+      u.resetPasswordExpires && 
+      new Date(u.resetPasswordExpires) > new Date()
+    );
+
+    if (userIndex === -1) {
+      return res.status(400).json({
+        error: 'Invalid or expired token',
+        message: 'Token לא תקין או פג תוקפו'
+      });
+    }
+
+    const user = users[userIndex];
+
+    // הצפנת הסיסמה החדשה
+    const hashedPassword = await AuthService.hashPassword(newPassword);
+    
+    // עדכון המשתמש
+    user.password = hashedPassword;
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+    user.updatedAt = new Date().toISOString();
+
+    writeJsonFile(USERS_FILE, users);
+
+    res.json({
+      message: 'הסיסמה אופסה בהצלחה'
+    });
+  } catch (error) {
+    console.error('Error in reset password:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'שגיאה פנימית בשרת'
+    });
   }
 });
 
