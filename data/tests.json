@@ -9,6 +9,7 @@
     "respondentsCount": 15,
     "averageScore": 88.4,
     "averageCorrect": 7.5,
+    "likes": ["u2", "u3", "u4"],
     "questions": [
       {
         "question": "מהו הערך של 2 + 2?",
@@ -72,6 +73,7 @@
     "respondentsCount": 20,
     "averageScore": 82.5,
     "averageCorrect": 6.2,
+    "likes": ["u1", "u3"],
     "questions": [
       {
         "question": "מהי יחידת המידה של כוח?",
@@ -140,6 +142,7 @@
     "respondentsCount": 18,
     "averageScore": 85.7,
     "averageCorrect": 8.1,
+    "likes": ["u1", "u2", "u4"],
     "questions": [
       {
         "question": "מהו הסמל הכימי של מים?",

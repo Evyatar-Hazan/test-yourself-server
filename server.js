@@ -19,6 +19,7 @@ const TESTS_FILE = path.join(__dirname, 'data', 'tests.json');
 const USERS_FILE = path.join(__dirname, 'data', 'users.json');
 const POSTS_FILE = path.join(__dirname, 'data', 'posts.json');
 const COMMENTS_FILE = path.join(__dirname, 'data', 'comments.json');
+const TEST_COMMENTS_FILE = path.join(__dirname, 'data', 'testComments.json');
 
 // פונקציה עוזרת לקריאת קובץ JSON
 const readJsonFile = (filePath, defaultData = []) => {
@@ -160,6 +161,248 @@ app.get('/api/comments', (req, res) => {
   } catch (error) {
     console.error('Error reading comments:', error);
     res.status(500).json({ error: 'Failed to read comments' });
+  }
+});
+
+// === TEST COMMENTS ENDPOINTS ===
+// קריאת תגובות לפי מבחן
+app.get('/api/tests/:testId/comments', (req, res) => {
+  try {
+    const { testId } = req.params;
+    const comments = readJsonFile(TEST_COMMENTS_FILE, []);
+    const testComments = comments.filter(comment => comment.testId === testId);
+    res.json(testComments);
+  } catch (error) {
+    console.error('Error reading test comments:', error);
+    res.status(500).json({ error: 'Failed to read test comments' });
+  }
+});
+
+// הוספת תגובה חדשה למבחן
+app.post('/api/tests/:testId/comments', (req, res) => {
+  try {
+    const { testId } = req.params;
+    const { authorId, body, parentId = null } = req.body;
+
+    if (!authorId || !body) {
+      return res.status(400).json({ error: 'Author ID and body are required' });
+    }
+
+    const comments = readJsonFile(TEST_COMMENTS_FILE, []);
+    const newComment = {
+      id: `tc${Date.now()}`,
+      testId,
+      authorId,
+      body,
+      createdAt: new Date().toISOString(),
+      likes: [],
+      parentId,
+      replies: [],
+    };
+
+    if (parentId) {
+      // אם זו תגובה מקוננת, נמצא את התגובה האב ונוסיף אליה
+      const addReplyToComment = commentsList => {
+        for (const comment of commentsList) {
+          if (comment.id === parentId) {
+            comment.replies.push(newComment);
+            return true;
+          }
+          if (comment.replies && addReplyToComment(comment.replies)) {
+            return true;
+          }
+        }
+        return false;
+      };
+
+      if (!addReplyToComment(comments)) {
+        return res.status(404).json({ error: 'Parent comment not found' });
+      }
+    } else {
+      // תגובה ראשית
+      comments.push(newComment);
+    }
+
+    fs.writeFileSync(TEST_COMMENTS_FILE, JSON.stringify(comments, null, 2));
+    res.status(201).json(newComment);
+  } catch (error) {
+    console.error('Error adding test comment:', error);
+    res.status(500).json({ error: 'Failed to add test comment' });
+  }
+});
+
+// עדכון תגובה
+app.put('/api/tests/:testId/comments/:commentId', (req, res) => {
+  try {
+    const { commentId } = req.params;
+    const { body } = req.body;
+
+    if (!body) {
+      return res.status(400).json({ error: 'Body is required' });
+    }
+
+    const comments = readJsonFile(TEST_COMMENTS_FILE, []);
+
+    const updateComment = commentsList => {
+      for (const comment of commentsList) {
+        if (comment.id === commentId) {
+          comment.body = body;
+          comment.updatedAt = new Date().toISOString();
+          return true;
+        }
+        if (comment.replies && updateComment(comment.replies)) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    if (!updateComment(comments)) {
+      return res.status(404).json({ error: 'Comment not found' });
+    }
+
+    fs.writeFileSync(TEST_COMMENTS_FILE, JSON.stringify(comments, null, 2));
+    res.json({ message: 'Comment updated successfully' });
+  } catch (error) {
+    console.error('Error updating test comment:', error);
+    res.status(500).json({ error: 'Failed to update test comment' });
+  }
+});
+
+// מחיקת תגובה
+app.delete('/api/tests/:testId/comments/:commentId', (req, res) => {
+  try {
+    const { commentId } = req.params;
+    const comments = readJsonFile(TEST_COMMENTS_FILE, []);
+
+    const deleteComment = commentsList => {
+      for (let i = 0; i < commentsList.length; i++) {
+        if (commentsList[i].id === commentId) {
+          commentsList.splice(i, 1);
+          return true;
+        }
+        if (commentsList[i].replies && deleteComment(commentsList[i].replies)) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    if (!deleteComment(comments)) {
+      return res.status(404).json({ error: 'Comment not found' });
+    }
+
+    fs.writeFileSync(TEST_COMMENTS_FILE, JSON.stringify(comments, null, 2));
+    res.json({ message: 'Comment deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting test comment:', error);
+    res.status(500).json({ error: 'Failed to delete test comment' });
+  }
+});
+
+// === LIKES ENDPOINTS ===
+// הוספת/הסרת לייק לתגובה
+app.post('/api/tests/:testId/comments/:commentId/like', (req, res) => {
+  try {
+    const { commentId } = req.params;
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
+
+    const comments = readJsonFile(TEST_COMMENTS_FILE, []);
+
+    const toggleLike = commentsList => {
+      for (const comment of commentsList) {
+        if (comment.id === commentId) {
+          const likeIndex = comment.likes.indexOf(userId);
+          if (likeIndex > -1) {
+            // הסר לייק
+            comment.likes.splice(likeIndex, 1);
+          } else {
+            // הוסף לייק
+            comment.likes.push(userId);
+          }
+          return true;
+        }
+        if (comment.replies && toggleLike(comment.replies)) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    if (!toggleLike(comments)) {
+      return res.status(404).json({ error: 'Comment not found' });
+    }
+
+    fs.writeFileSync(TEST_COMMENTS_FILE, JSON.stringify(comments, null, 2));
+    res.json({ message: 'Like toggled successfully' });
+  } catch (error) {
+    console.error('Error toggling comment like:', error);
+    res.status(500).json({ error: 'Failed to toggle comment like' });
+  }
+});
+
+// הוספת/הסרת לייק למבחן
+app.post('/api/tests/:testId/like', (req, res) => {
+  try {
+    const { testId } = req.params;
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
+
+    // נבדוק קודם במבחני משתמש
+    let tests = readJsonFile(USER_TESTS_FILE, []);
+    let testFound = false;
+
+    for (const test of tests) {
+      if (test.id === testId) {
+        if (!test.likes) test.likes = [];
+        const likeIndex = test.likes.indexOf(userId);
+        if (likeIndex > -1) {
+          test.likes.splice(likeIndex, 1);
+        } else {
+          test.likes.push(userId);
+        }
+        testFound = true;
+        break;
+      }
+    }
+
+    if (testFound) {
+      fs.writeFileSync(USER_TESTS_FILE, JSON.stringify(tests, null, 2));
+      return res.json({ message: 'Like toggled successfully' });
+    }
+
+    // אם לא נמצא, נבדוק במבחנים הסטטיים
+    tests = readJsonFile(TESTS_FILE, []);
+    for (const test of tests) {
+      if (test.id === testId) {
+        if (!test.likes) test.likes = [];
+        const likeIndex = test.likes.indexOf(userId);
+        if (likeIndex > -1) {
+          test.likes.splice(likeIndex, 1);
+        } else {
+          test.likes.push(userId);
+        }
+        testFound = true;
+        break;
+      }
+    }
+
+    if (!testFound) {
+      return res.status(404).json({ error: 'Test not found' });
+    }
+
+    fs.writeFileSync(TESTS_FILE, JSON.stringify(tests, null, 2));
+    res.json({ message: 'Like toggled successfully' });
+  } catch (error) {
+    console.error('Error toggling test like:', error);
+    res.status(500).json({ error: 'Failed to toggle test like' });
   }
 });
 
