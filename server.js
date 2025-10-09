@@ -167,3 +167,4 @@ app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`📁 User tests file: ${USER_TESTS_FILE}`);
 });
+// Test comment for git hook
