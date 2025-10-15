@@ -7,7 +7,10 @@
     "avatarUrl": "/avataras/alice.jpg",
     "isEmailVerified": true,
     "createdAt": "2024-01-15T10:30:00Z",
-    "updatedAt": "2024-01-15T10:30:00Z"
+    "updatedAt": "2025-10-15T11:44:56.134Z",
+    "followers": [
+      "1760013747554"
+    ]
   },
   {
     "id": "u2",
@@ -17,7 +20,8 @@
     "avatarUrl": "/avataras/ben.jpg",
     "isEmailVerified": true,
     "createdAt": "2024-01-20T14:15:00Z",
-    "updatedAt": "2024-01-20T14:15:00Z"
+    "updatedAt": "2025-10-15T11:41:41.740Z",
+    "followers": []
   },
   {
     "id": "u3",
@@ -67,7 +71,10 @@
     "isEmailVerified": false,
     "emailVerificationToken": "349810585ab38ce906d7339a5884515e0c5ea35d25830b711cc53b9649034200",
     "createdAt": "2025-10-09T12:42:27.554Z",
-    "updatedAt": "2025-10-09T12:42:27.554Z"
+    "updatedAt": "2025-10-15T11:44:56.134Z",
+    "following": [
+      "u1"
+    ]
   },
   {
     "id": "1760015494059",
@@ -78,5 +85,17 @@
     "emailVerificationToken": "dbda604197a1203ba411a6175ad15a05fcf70aeb7d9642baa16e9f309b60b25d",
     "createdAt": "2025-10-09T13:11:34.059Z",
     "updatedAt": "2025-10-09T13:11:34.059Z"
+  },
+  {
+    "id": "1760527358904",
+    "name": "Smoke User",
+    "email": "smoke+1760527358@example.com",
+    "password": "$2b$12$kbdMBHJ6Tk1o9zPHttKx3Or1n.pQ5NHhQ9LVywGSqWDUQVPjDBiEO",
+    "isEmailVerified": false,
+    "emailVerificationToken": "21cdb39e4359c5aa6c77ab2280db236e62d03188039418d9e0880c625ed69793",
+    "createdAt": "2025-10-15T11:22:38.904Z",
+    "updatedAt": "2025-10-15T11:41:41.740Z",
+    "followers": [],
+    "following": []
   }
 ]

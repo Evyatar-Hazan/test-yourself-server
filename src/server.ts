@@ -45,6 +45,8 @@ interface User {
   name: string;
   email: string;
   avatarUrl?: string;
+  followers?: string[];
+  following?: string[];
 }
 
 interface Post {
@@ -165,7 +167,9 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
       isEmailVerified: false,
       emailVerificationToken,
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
+      followers: [],
+      following: []
     };
 
     users.push(newUser);
@@ -571,6 +575,143 @@ app.get('/api/users', (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error reading users:', error);
     res.status(500).json({ error: 'Failed to read users' });
+  }
+});
+
+// === FOLLOW SYSTEM ===
+// Get a single user by id (with followers/following)
+app.get('/api/users/:id', (req: Request, res: Response) => {
+  try {
+    const users = readJsonFile<AuthUser[]>(USERS_FILE, []);
+    const user = users.find(u => u.id === req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    return res.json(AuthService.toUserResponse(user));
+  } catch (error) {
+    console.error('Error reading user:', error);
+    return res.status(500).json({ error: 'Failed to read user' });
+  }
+});
+
+// Follow a user
+app.post('/api/users/:id/follow', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const targetUserId = req.params.id;
+    const currentUserId = req.user?.id;
+
+    if (!currentUserId) {
+      return res.status(401).json({ error: 'Unauthorized', message: 'נדרש token גישה' });
+    }
+    if (currentUserId === targetUserId) {
+      return res.status(400).json({ error: 'Cannot follow yourself', message: 'לא ניתן לעקוב אחרי עצמך' });
+    }
+
+    const users = readJsonFile<AuthUser[]>(USERS_FILE, []);
+    const currentUser = users.find(u => u.id === currentUserId);
+    const targetUser = users.find(u => u.id === targetUserId);
+
+    if (!currentUser || !targetUser) {
+      return res.status(404).json({ error: 'User not found', message: 'משתמש לא נמצא' });
+    }
+
+    // initialize arrays if missing
+    currentUser.following = currentUser.following || [];
+    targetUser.followers = targetUser.followers || [];
+
+    if (!currentUser.following.includes(targetUserId)) {
+      currentUser.following.push(targetUserId);
+    }
+    if (!targetUser.followers.includes(currentUserId)) {
+      targetUser.followers.push(currentUserId);
+    }
+
+    currentUser.updatedAt = new Date().toISOString();
+    targetUser.updatedAt = new Date().toISOString();
+    writeJsonFile(USERS_FILE, users);
+
+    return res.json({
+      message: 'Followed successfully',
+      me: AuthService.toUserResponse(currentUser),
+      target: AuthService.toUserResponse(targetUser)
+    });
+  } catch (error) {
+    console.error('Error following user:', error);
+    return res.status(500).json({ error: 'Failed to follow user', message: 'נכשל לעקוב' });
+  }
+});
+
+// Unfollow a user
+app.delete('/api/users/:id/follow', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const targetUserId = req.params.id;
+    const currentUserId = req.user?.id;
+
+    if (!currentUserId) {
+      return res.status(401).json({ error: 'Unauthorized', message: 'נדרש token גישה' });
+    }
+    if (currentUserId === targetUserId) {
+      return res.status(400).json({ error: 'Cannot unfollow yourself', message: 'לא ניתן להסיר מעקב מעצמך' });
+    }
+
+    const users = readJsonFile<AuthUser[]>(USERS_FILE, []);
+    const currentUser = users.find(u => u.id === currentUserId);
+    const targetUser = users.find(u => u.id === targetUserId);
+
+    if (!currentUser || !targetUser) {
+      return res.status(404).json({ error: 'User not found', message: 'משתמש לא נמצא' });
+    }
+
+    currentUser.following = currentUser.following || [];
+    targetUser.followers = targetUser.followers || [];
+
+    currentUser.following = currentUser.following.filter(id => id !== targetUserId);
+    targetUser.followers = targetUser.followers.filter(id => id !== currentUserId);
+
+    currentUser.updatedAt = new Date().toISOString();
+    targetUser.updatedAt = new Date().toISOString();
+    writeJsonFile(USERS_FILE, users);
+
+    return res.json({
+      message: 'Unfollowed successfully',
+      me: AuthService.toUserResponse(currentUser),
+      target: AuthService.toUserResponse(targetUser)
+    });
+  } catch (error) {
+    console.error('Error unfollowing user:', error);
+    return res.status(500).json({ error: 'Failed to unfollow user', message: 'נכשל להסיר מעקב' });
+  }
+});
+
+// Get followers list
+app.get('/api/users/:id/followers', (req: Request, res: Response) => {
+  try {
+    const users = readJsonFile<AuthUser[]>(USERS_FILE, []);
+    const user = users.find(u => u.id === req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const followers = (user.followers || []).map(fid => {
+      const u = users.find(x => x.id === fid);
+      return u ? AuthService.toUserResponse(u) : null;
+    }).filter(Boolean);
+    return res.json(followers);
+  } catch (error) {
+    console.error('Error getting followers:', error);
+    return res.status(500).json({ error: 'Failed to get followers' });
+  }
+});
+
+// Get following list
+app.get('/api/users/:id/following', (req: Request, res: Response) => {
+  try {
+    const users = readJsonFile<AuthUser[]>(USERS_FILE, []);
+    const user = users.find(u => u.id === req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const following = (user.following || []).map(fid => {
+      const u = users.find(x => x.id === fid);
+      return u ? AuthService.toUserResponse(u) : null;
+    }).filter(Boolean);
+    return res.json(following);
+  } catch (error) {
+    console.error('Error getting following:', error);
+    return res.status(500).json({ error: 'Failed to get following' });
   }
 });
 

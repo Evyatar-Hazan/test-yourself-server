@@ -71,7 +71,9 @@ export class AuthService {
       avatarUrl: user.avatarUrl,
       isEmailVerified: user.isEmailVerified,
       createdAt: user.createdAt,
-      lastLoginAt: user.lastLoginAt
+      lastLoginAt: user.lastLoginAt,
+      followers: user.followers ?? [],
+      following: user.following ?? []
     };
   }
 

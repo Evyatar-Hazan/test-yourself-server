@@ -11,6 +11,9 @@ export interface User {
   createdAt: string;
   updatedAt: string;
   lastLoginAt?: string;
+  // Follow relationships
+  followers?: string[]; // users who follow this user (ids)
+  following?: string[]; // users this user follows (ids)
 }
 
 export interface UserResponse {
@@ -21,6 +24,9 @@ export interface UserResponse {
   isEmailVerified: boolean;
   createdAt: string;
   lastLoginAt?: string;
+  // Expose follow relationships for UI
+  followers?: string[];
+  following?: string[];
 }
 
 export interface LoginRequest {
